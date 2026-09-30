@@ -102,8 +102,8 @@ def guardar_resumen_grafo(total_calificaciones):
         archivo_resumen.write(f"Cantidad de aristas: {total_calificaciones}\n")
 
 
-def elegir_subgrafo_bipartito(cantidad_usuarios_objetivo=10, cantidad_peliculas_objetivo=5):
-    usuarios_candidatos = [str(i) for i in range(1, 121)]
+def elegir_subgrafo_bipartito(inicio_usuario, fin_usuario, cantidad_usuarios_objetivo=8, cantidad_peliculas_objetivo=4):
+    usuarios_candidatos = [str(i) for i in range(inicio_usuario, fin_usuario + 1)]
 
     ratings_altos = []
     apariciones_pelicula = defaultdict(int)
@@ -116,7 +116,7 @@ def elegir_subgrafo_bipartito(cantidad_usuarios_objetivo=10, cantidad_peliculas_
                 ratings_altos.append((id_usuario, id_pelicula, rating))
                 apariciones_pelicula[id_pelicula] += 1
 
-    # A continuacion elegimos peliculas compartidas, pero no demasiadas para que el dibujo quede limpio.
+    # A continuacion elegimos peliculas compartidas para que el dibujo quede limpio.
     peliculas_ordenadas = sorted(
         apariciones_pelicula.items(),
         key=lambda elemento: (-elemento[1], int(elemento[0]))
@@ -126,28 +126,26 @@ def elegir_subgrafo_bipartito(cantidad_usuarios_objetivo=10, cantidad_peliculas_
     for id_pelicula, repeticiones in peliculas_ordenadas:
         if repeticiones >= 2:
             peliculas_seleccionadas.append(id_pelicula)
-
         if len(peliculas_seleccionadas) == cantidad_peliculas_objetivo:
             break
 
-    # Luego elegimos pocas conexiones por pelicula y maximo dos por usuario.
     aristas_seleccionadas = []
     conteo_usuario = defaultdict(int)
     conteo_pelicula = defaultdict(int)
     usuarios_seleccionados = set()
 
+    # Luego elegimos pocas relaciones por pelicula y maximo dos por usuario.
     for id_pelicula in peliculas_seleccionadas:
         conexiones_pelicula = [
             (id_usuario, rating)
             for id_usuario, pelicula, rating in ratings_altos
             if pelicula == id_pelicula
         ]
-        conexiones_pelicula = sorted(conexiones_pelicula, key=lambda x: (int(x[0]), -x[1]))
+        conexiones_pelicula = sorted(conexiones_pelicula, key=lambda x: (conteo_usuario[x[0]], int(x[0]), -x[1]))
 
         for id_usuario, rating in conexiones_pelicula:
             if conteo_pelicula[id_pelicula] >= 2:
                 break
-
             if conteo_usuario[id_usuario] >= 2:
                 continue
 
@@ -171,12 +169,14 @@ def elegir_subgrafo_bipartito(cantidad_usuarios_objetivo=10, cantidad_peliculas_
         for id_usuario, rating in conexiones_pelicula:
             if len(usuarios_seleccionados) >= cantidad_usuarios_objetivo:
                 break
-
             if id_usuario in usuarios_seleccionados:
                 continue
+            if conteo_pelicula[id_pelicula] >= 3:
+                break
 
             aristas_seleccionadas.append((id_usuario, id_pelicula, rating))
             conteo_usuario[id_usuario] += 1
+            conteo_pelicula[id_pelicula] += 1
             usuarios_seleccionados.add(id_usuario)
 
     usuarios_finales = sorted(list(usuarios_seleccionados), key=int)[:cantidad_usuarios_objetivo]
@@ -184,14 +184,12 @@ def elegir_subgrafo_bipartito(cantidad_usuarios_objetivo=10, cantidad_peliculas_
 
     aristas_filtradas = []
     peliculas_finales = set()
-
     for id_usuario, id_pelicula, rating in aristas_seleccionadas:
         if id_usuario in usuarios_validos:
             aristas_filtradas.append((id_usuario, id_pelicula, rating))
             peliculas_finales.add(id_pelicula)
 
     peliculas_finales = sorted(list(peliculas_finales), key=int)
-
     return usuarios_finales, peliculas_finales, aristas_filtradas
 
 
@@ -199,7 +197,6 @@ def ordenar_para_menos_cruces(usuarios, peliculas, aristas):
     indice_usuario = {id_usuario: i for i, id_usuario in enumerate(sorted(usuarios, key=int))}
 
     for _ in range(4):
-        # Primero ordenamos peliculas por el promedio del indice de sus usuarios.
         promedio_pelicula = {}
         for id_pelicula in peliculas:
             usuarios_conectados = [indice_usuario[id_usuario] for id_usuario, pelicula, rating in aristas if pelicula == id_pelicula]
@@ -208,7 +205,6 @@ def ordenar_para_menos_cruces(usuarios, peliculas, aristas):
         peliculas = sorted(peliculas, key=lambda id_pelicula: (promedio_pelicula[id_pelicula], int(id_pelicula)))
         indice_pelicula = {id_pelicula: i for i, id_pelicula in enumerate(peliculas)}
 
-        # A continuacion ordenamos usuarios por el promedio del indice de sus peliculas.
         promedio_usuario = {}
         for id_usuario in usuarios:
             peliculas_conectadas = [indice_pelicula[id_pelicula] for usuario, id_pelicula, rating in aristas if usuario == id_usuario]
@@ -312,8 +308,8 @@ def dibujar_estrella_rating(ax, x, y, rating):
         estrella,
         transform=transformacion + ax.transData,
         facecolor="#d9d9d9",
-        edgecolor="black",
-        lw=0.75,
+        edgecolor="none",
+        lw=0.0,
         zorder=2
     )
     ax.add_patch(estrella_gris)
@@ -338,16 +334,6 @@ def dibujar_estrella_rating(ax, x, y, rating):
     estrella_amarilla.set_clip_path(clip.get_path(), clip.get_transform())
     ax.add_patch(estrella_amarilla)
 
-    contorno = PathPatch(
-        estrella,
-        transform=transformacion + ax.transData,
-        facecolor="none",
-        edgecolor="black",
-        lw=0.75,
-        zorder=4
-    )
-    ax.add_patch(contorno)
-
     ax.text(
         x,
         y + 0.01,
@@ -361,30 +347,32 @@ def dibujar_estrella_rating(ax, x, y, rating):
     )
 
 
-def generar_visualizacion_bipartita():
+def generar_visualizacion_bipartita(indice_subgrafo, inicio_usuario, fin_usuario):
     usuarios, peliculas, aristas = elegir_subgrafo_bipartito(
-        cantidad_usuarios_objetivo=10,
-        cantidad_peliculas_objetivo=5
+        inicio_usuario,
+        fin_usuario,
+        cantidad_usuarios_objetivo=8,
+        cantidad_peliculas_objetivo=4
     )
 
-    if len(usuarios) < 10:
-        print("No se encontraron suficientes usuarios para la visualizacion.")
+    if len(usuarios) < 4 or len(peliculas) < 2:
+        print(f"No se pudo generar el subgrafo {indice_subgrafo} con suficientes datos.")
         return
 
     usuarios, peliculas = ordenar_para_menos_cruces(usuarios, peliculas, aristas)
 
-    fig, ax = plt.subplots(figsize=(15, 10))
+    fig, ax = plt.subplots(figsize=(14, 8.5))
     fig.patch.set_facecolor("white")
     ax.set_facecolor("white")
 
     x_usuario = 1.7
-    x_pelicula = 12.2
+    x_pelicula = 12.0
 
-    espacio_vertical_usuarios = 1.0
-    espacio_vertical_peliculas = 1.65
+    espacio_vertical_usuarios = 0.95
+    espacio_vertical_peliculas = 1.55
 
-    y_inicio_usuarios = len(usuarios) * espacio_vertical_usuarios + 1.0
-    y_inicio_peliculas = len(peliculas) * espacio_vertical_peliculas + 1.2
+    y_inicio_usuarios = len(usuarios) * espacio_vertical_usuarios + 0.9
+    y_inicio_peliculas = len(peliculas) * espacio_vertical_peliculas + 1.0
 
     posiciones_usuarios = {}
     posiciones_peliculas = {}
@@ -399,7 +387,7 @@ def generar_visualizacion_bipartita():
         y = y_inicio_peliculas - indice * espacio_vertical_peliculas
         posiciones_peliculas[id_pelicula] = (x_pelicula, y)
 
-    # Preparamos una regla clara para que las estrellas no se superpongan.
+    # Preparamos una regla para que las estrellas no se superpongan.
     conexiones_por_usuario = defaultdict(list)
     for id_usuario, id_pelicula, rating in aristas:
         conexiones_por_usuario[id_usuario].append((id_pelicula, rating))
@@ -469,14 +457,14 @@ def generar_visualizacion_bipartita():
         x, y = posiciones_peliculas[id_pelicula]
         dibujar_icono_pelicula(ax, x, y, peliculas_movielens[id_pelicula])
 
-    ax.set_xlim(0.8, 13.7)
-    ax.set_ylim(0.7, max(y_inicio_usuarios, y_inicio_peliculas) + 0.8)
+    ax.set_xlim(0.8, 13.5)
+    ax.set_ylim(0.6, max(y_inicio_usuarios, y_inicio_peliculas) + 0.8)
     ax.axis("off")
     plt.tight_layout()
 
     ruta_resultados = os.path.abspath(CARPETA_RESULTADOS)
     os.makedirs(ruta_resultados, exist_ok=True)
-    ruta_imagen = os.path.join(ruta_resultados, "grafo_bipartito_movielens.png")
+    ruta_imagen = os.path.join(ruta_resultados, f"grafo_bipartito_movielens_{indice_subgrafo}.png")
 
     figura_actual = plt.gcf()
     figura_actual.savefig(
@@ -487,7 +475,7 @@ def generar_visualizacion_bipartita():
     )
     plt.close(figura_actual)
 
-    print("Imagen generada en:", ruta_imagen)
+    print(f"Imagen generada en: {ruta_imagen}")
 
 
 def main():
@@ -501,8 +489,10 @@ def main():
     # A continuacion guardamos los datos basicos del grafo completo.
     guardar_resumen_grafo(total_calificaciones)
 
-    # Finalmente generamos la imagen PNG del subgrafo bipartito para el informe.
-    generar_visualizacion_bipartita()
+    # Finalmente generamos tres subgrafos distintos para el informe.
+    rangos = [(1, 40), (41, 80), (81, 120)]
+    for indice, (inicio_usuario, fin_usuario) in enumerate(rangos, start=1):
+        generar_visualizacion_bipartita(indice, inicio_usuario, fin_usuario)
 
 
 if __name__ == "__main__":
