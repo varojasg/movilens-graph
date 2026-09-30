@@ -1,0 +1,6 @@
+Cantidad de usuarios: 6040
+Cantidad de peliculas: 3883
+Peliculas con calificaciones: 3706
+Cantidad total de nodos: 9923
+Nodos conectados: 9746
+Cantidad de aristas: 1000209
